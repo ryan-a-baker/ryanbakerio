@@ -1,7 +1,7 @@
 ---
 layout: post
-title: First post!
+title: It's taken forever!
 image: /img/hello_world.jpeg
 ---
 
-This is my first post, how exciting!
+For the past couple years, I've always wanted to start a blog.  Now I have one!
