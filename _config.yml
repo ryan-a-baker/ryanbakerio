@@ -16,6 +16,9 @@ description: A virtual proof that I'm awesome
 # baseurl should be an empty string
 #baseurl: ""
 
+url: "https://ryanbaker.io"
+baseurl: ""
+
 # --- Navigation bar options --- #
 
 # List of links in the navigation bar
