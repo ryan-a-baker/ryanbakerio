@@ -14,12 +14,14 @@ AWS also provides you with [guidance](https://docs.aws.amazon.com/eks/latest/use
 
 # The Workflow
 
-The workflow is quite simple, once you walk through it.  First, let's look at how EKS node management works.
+The workflow is quite simple, once you walk through it.
+
+![EKS Node Drainer Workflow](https://github.com/ryan-a-baker/ryanbakerio/blob/master/img/workflow.png?raw=true){: .center-block :}
+
+First, let's look at how EKS node management works.
 
 The instances in an EKS cluster are typically managed by EC2 Auto-Scaling groups (ASG) which is configured to maintain a fixed number of EC2 instances.  If you were to go in to the AWS console and delete one of the EC2 instances in your cluster, the ASG will automatically launch another node with the configuration specified by the ASG's launch configuration, bringing your node count back to the number of instances specified by the ASG.
 
-ASG’s have a really neat feature called “Lifecycle Hooks” which allow you to perform specific actions on either an instance launch or instance termination.  This lifecycle hook is handled by a CloudWatch Event Rule, which can then do many things, including call a Lambda.
+ASG’s have a really neat feature called “Lifecycle Hooks” which allow you to perform specific actions on either an instance launch or instance termination.  This lifecycle hook event is then captured by a CloudWatch Event Rule, which can then do many things, including call a Lambda.
 
-So, if we leverage the lifecycle hooks on the EKS clusters auto-scaling group, we can have a CloudWatch rule invoke a Lambda when a node termination happens, which in turn can call the K8S API to drain the node before allowing the termination to continue.\
-
-![EKS Node Drainer Workflow](https://github.com/ryan-a-baker/ryanbakerio/blob/master/img/workflow.png?raw=true){: .center-block :}
+So, if we leverage the lifecycle hooks on the EKS clusters auto-scaling group, we can have a CloudWatch rule invoke a Lambda when a node termination happens, which in turn can call the K8S API to drain the node before allowing the termination to continue.
