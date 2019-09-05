@@ -12,6 +12,8 @@ We looked at several options that we found while googling.  There was a [github 
 
 AWS also provides you with [guidance](https://docs.aws.amazon.com/eks/latest/userguide/migrate-stack.html) to use eksctl which will drain nodes enabling blue/green node flips between node pools.  While I would have preferred this, we had business requirements which made this not an option.  We needed a better solution, one which would hook in to the existing workflow and make it seamless for us.
 
+As a result, I decided to build a solution, and for the first time in my career, *truly open-source a project!*
+
 # The Workflow
 
 The workflow is quite simple, once you walk through it.
