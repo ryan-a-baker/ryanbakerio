@@ -10,9 +10,9 @@ There have been several posts around this issue, and ways people solved it, but 
 
 https://github.com/awslabs/amazon-eks-ami/issues/66
 
-AWS does provide you with the option to use eksctl which will drain nodes enabling blue/green node flips.  While I would have preferred this, we had some business requirements which made this difficult, so we needed a better solution, one which would hook in to the existing workflow and make it seamless for us.
+AWS [provides](https://docs.aws.amazon.com/eks/latest/userguide/migrate-stack.html) you with the option to use eksctl which will drain nodes enabling blue/green node flips between node pools.  While I would have preferred this, we had business requirements which made this not an option.  We needed a better solution, one which would hook in to the existing workflow and make it seamless for us.
 
-https://docs.aws.amazon.com/eks/latest/userguide/migrate-stack.html
+# The Workflow
 
 The workflow is quite simple, once you walk through it.  First, let's look at how EKS node management works.
 
