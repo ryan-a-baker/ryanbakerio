@@ -15,8 +15,6 @@ One of my favorite things to do is to share knowledge and experiences with the c
 
 (OpenStack in the Real World: VMware Integrated OpenStack Customer)[https://www.youtube.com/watch?v=5LSNOsHESV4#action=share]
 
-![EKS Node Drainer Workflow](https://github.com/ryan-a-baker/ryanbakerio/blob/master/img/workflow.png?raw=true){: .center-block :}
-
 ## OpenStack Summit 2016
 
 ![OpenStack Summit 2016](https://github.com/ryan-a-baker/ryanbakerio/blob/master/img/ossummit2016.png?raw=true){: .center-block :}
