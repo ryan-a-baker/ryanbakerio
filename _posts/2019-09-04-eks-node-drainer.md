@@ -58,3 +58,9 @@ Fill out the following information:
 | Heartbeat Timeout | 300 is what I found works the best for our workloads.  However, see the section belw titled timing for further explanation |
 | Default Result | This will be what happens when the timeout is reached.  We chose abandon to kill of the lifecycle hook.  Choosing continue would just allow the terminate of the instance to continue |
 | Notification Metadata | Put the name of your cluster here.  This is important because it will be passed to the Lambda, which is used to build the K8S context within the Lambda |
+
+Once it's created, it should look something like this:
+
+![Lifecycle Hook Created](https://github.com/ryan-a-baker/ryanbakerio/blob/master/img/lifecyclehookcreated.png?raw=true){: .center-block :}
+
+Take a deep breath, that's the last manual thing you'll have to do.  The rest is all defined by running the CloudFormation.
