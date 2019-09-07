@@ -8,4 +8,4 @@ For the past couple years, I've always wanted to start a blog.  Now I have one! 
 
 I know for sure I'm going to be posting tech stuff here, and I'll probably throw in some non-tech stuff occasionally.  I have just way too many hobbies not to.
 
-Check out my about me page for my bio, and the links at the bottom of the page for my LinkedIn, Github, and twitter (something I really need to do more of) accounts.
+Check out my about me page for my bio, and the links at the bottom of the page for my LinkedIn, Github, and Twitter (something I really need to do more of) accounts.
