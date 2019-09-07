@@ -44,3 +44,17 @@ Often times, before nodes are launched or terminated, some sort of action needs 
 
 The auto-scaling group for the EKS cluster is deployed as part of the [cluster configuration](https://amazon-eks.s3-us-west-2.amazonaws.com/cloudformation/2019-01-
 09/amazon-eks-nodegroup.yaml) that Amazon provides in their [quick-start guide](https://s3.amazonaws.com/aws-quickstart/quickstart-amazon-eks/doc/amazon-eks-architecture.pdf).  Because of this, this is the only part of this deployment that you will have to manually do.  Ideally, it would be best to update the Cloudformation you used to launch your cluster, but given that Amzon has released many versions of this template, it would be difficult to document every permutation, but doing it manually will work fine.  Just make sure if you run an update via Cloudformation after this is added that you ensure the lifecycle hook persists as it could be removed since it is added out-of-band.
+
+It's simple to add the lifecycle hook, just navigate to the AWS EC2 Dashboard->Auto Scaling Groups and locate your clusters auto scaling group.  It will be named the same as your cluster + "-cluster-NodeGroup-<random string>" appended to the end.  Once selected, navigate to the "Lifecycle Hook" tab and click "Create Lifecycle Hook" button.
+
+![Create Lifecycle Hook](https://github.com/ryan-a-baker/ryanbakerio/blob/master/img/lifecyclehookcreate.png?raw=true){: .center-block :}
+
+Fill out the following information:
+
+| Field | Value |
+| ----- | ----- |
+| Lifecycle Hook Name | Arbitrary.  Name it whatever you like that makes sense |
+| Lifecycle Transition | We only need to take action when a node is terminated, so choose "Instance Terminate" |
+| Heartbeat Timeout | 300 is what I found works the best for our workloads.  However, see the section belw titled timing for further explanation |
+| Default Result | This will be what happens when the timeout is reached.  We chose abandon to kill of the lifecycle hook.  Choosing continue would just allow the terminate of the instance to continue |
+| Notification Metadata | Put the name of your cluster here.  This is important because it will be passed to the lambda, which is used to build the K8S context within the Lambda |
