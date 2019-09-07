@@ -18,7 +18,7 @@ We looked at several options that we found while googling.  There was a [github 
 
 AWS also provides you with [guidance](https://docs.aws.amazon.com/eks/latest/userguide/migrate-stack.html) to use eksctl which will drain nodes enabling blue/green node flips between node pools.  While I would have preferred this, we had business requirements which made this not an option.  We needed a better solution, one which would hook in to the existing workflow and make it seamless for us.
 
-As a result, I decided to build a solution, and for the first time in my career, *truly open-source a project!*
+As a result, I decided to build a solution, and for the first time in my career, *truly open-source a project!*.  The repo for the project can be found on my [GitHub](https://github.com/ryan-a-baker/eks-node-drainer).
 
 # The Workflow
 
@@ -57,4 +57,4 @@ Fill out the following information:
 | Lifecycle Transition | We only need to take action when a node is terminated, so choose "Instance Terminate" |
 | Heartbeat Timeout | 300 is what I found works the best for our workloads.  However, see the section belw titled timing for further explanation |
 | Default Result | This will be what happens when the timeout is reached.  We chose abandon to kill of the lifecycle hook.  Choosing continue would just allow the terminate of the instance to continue |
-| Notification Metadata | Put the name of your cluster here.  This is important because it will be passed to the lambda, which is used to build the K8S context within the Lambda |
+| Notification Metadata | Put the name of your cluster here.  This is important because it will be passed to the Lambda, which is used to build the K8S context within the Lambda |
