@@ -40,30 +40,7 @@ Let's take a look at each of these components in depth to learn how they work.  
 
 As mentioned, the heart of EKS's fleet management is managed by an [EC2 auto-scaling group](https://docs.aws.amazon.com/autoscaling/ec2/userguide/AutoScalingGroup.html).  This auto-scaling group ties together the configuration that EKS instances should be deployed with ([EC2 Launch Configuration](https://docs.aws.amazon.com/autoscaling/ec2/userguide/LaunchConfiguration.html)) with the desired scaling parameters to create a logical grouping of EC2 instances.  The auto-scaling group is what defines the number of nodes that are in your EKS cluster, adjusting the desired number of instances on the auto-scaling group will either launch or terminate instances to match your new desired count.
 
-Often times, before nodes are launched or terminated, some sort of action needs to be taken in order to prepare an application for the addition/removal of an instance.  To facilitate this, Amazon provides an [auto-scaling group lifecycle hook](https://docs.aws.amazon.com/autoscaling/ec2/userguide/lifecycle-hooks.html), which can be used to perform any needed action when a lifecycle event occurs.  Since our desire is to drain all pods off a node before it's terminated, we'll be able to take advantage of this functionality as our initiation point for the workflow, so lets take a look at how to set this up.
-
-The auto-scaling group for the EKS cluster is deployed as part of the [cluster configuration](https://amazon-eks.s3-us-west-2.amazonaws.com/cloudformation/2019-01-
-09/amazon-eks-nodegroup.yaml) that Amazon provides in their [quick-start guide](https://s3.amazonaws.com/aws-quickstart/quickstart-amazon-eks/doc/amazon-eks-architecture.pdf).  Because of this, this is the only part of this deployment that you will have to manually do.  Ideally, it would be best to update the Cloudformation you used to launch your cluster, but given that Amzon has released many versions of this template, it would be difficult to document every permutation, but doing it manually will work fine.  Just make sure if you run an update via Cloudformation after this is added that you ensure the lifecycle hook persists as it could be removed since it is added out-of-band.
-
-It's simple to add the lifecycle hook, just navigate to the AWS EC2 Dashboard->Auto Scaling Groups and locate your clusters auto scaling group.  It will be named the same as your cluster + "-cluster-NodeGroup-<random string>" appended to the end.  Once selected, navigate to the "Lifecycle Hook" tab and click "Create Lifecycle Hook" button.
-
-![Create Lifecycle Hook](https://github.com/ryan-a-baker/ryanbakerio/blob/master/img/lifecyclehookcreate.png?raw=true){: .center-block :}
-
-Fill out the following information:
-
-| Field | Value |
-| ----- | ----- |
-| Lifecycle Hook Name | Arbitrary.  Name it whatever you like that makes sense |
-| Lifecycle Transition | We only need to take action when a node is terminated, so choose "Instance Terminate" |
-| Heartbeat Timeout | 300 is what I found works the best for our workloads.  However, see the section below titled timing for further explanation |
-| Default Result | This will be what happens when the timeout is reached.  We chose abandon to kill of the lifecycle hook.  Choosing continue would just allow the terminate of the instance to continue |
-| Notification Metadata | Put the name of your cluster here.  This is important because it will be passed to the Lambda, which is used to build the K8S context within the Lambda |
-
-Once it's created, it should look something like this:
-
-![Lifecycle Hook Created](https://github.com/ryan-a-baker/ryanbakerio/blob/master/img/lifecyclehookcreated.png?raw=true){: .center-block :}
-
-Take a deep breath, that's the last manual thing you'll have to do.  The rest is all defined by running the CloudFormation template.
+Often times, before nodes are launched or terminated, some sort of action needs to be taken in order to prepare an application for the addition/removal of an instance.  To facilitate this, Amazon provides an [auto-scaling group lifecycle hook](https://docs.aws.amazon.com/autoscaling/ec2/userguide/lifecycle-hooks.html), which can be used to perform any needed action when a lifecycle event occurs.  Since our desire is to drain all pods off a node before it's terminated, we'll be able to take advantage of this functionality as our initiation point for the workflow.
 
 ## CloudWatch Event Rule
 
@@ -82,3 +59,32 @@ There are a couple components here that we care about.  The first configuration 
 | detail | This is the list of auto-scaling groups to watch for events from. This supports multiple groups so multiple clusters can be handled by a single rule |
 
 Next, we define the target for the rule to invoke.  In our case, this is the Lambda function that will actually do the draining of the nodes.
+
+## Lambda function
+
+The [lambda function](https://docs.aws.amazon.com/lambda/latest/dg/welcome.html) is the brains of the whole operation.  It's written in Python, and I added a ton of inline documentation to really walk you through what the Lambda is doing, so I highly recommend taking a look at it [here](https://github.com/ryan-a-baker/eks-node-drainer/blob/master/lambda/drain_node_lambda.py).
+
+At a very high level, the function does the following:
+
+1.  Convert the EC2 instance ID received from the CloudWatch Event metadata to a hostname so it can be used to call the K8S API to drain the node
+2.  Generate a kubeconfig file that can be loaded for K8S API calls.  Inside the lambda, I am leveraging the [aws-iam-authenticator](https://docs.aws.amazon.com/eks/latest/userguide/install-aws-iam-authenticator.html) to handle the EKS authentication.
+3.  Cordon the node via the K8S API
+4.  Loop through every pod on the node, evicting them individually.
+5.  Wait for all pods to complete the eviction
+6.  Tell the ASG lifecycle hook to continue on
+
+It was a bit surprising to me when I started working on this that the "drain" command which exists in the K8S CLI, does not actually have a corresponding API command.  After doing a bit of research and looking at the source code, I realized that the CLI is actually handling the orchestration to cordon the node and the perform an evict on each pod individually, so I had to recreate that workflow inside the lambda.
+
+In order for the CloudFormation to create the Lambda, you'll need to upload the zip file to S3 in a bucket named "eks-node-drainer".
+
+# Deploying the service
+
+Deploying the service is a simple 3 step process.
+
+1. Create the ASG Lifecycle Hook
+2. Deploy the CloudFormation which creates the CloudWatch Event Rule, Lambda, and the needed IAM Roles.
+3. Apply the K8S roles to allow the Lambda to authenticate with K8S
+
+It makes more sense to keep the deployment steps tied to the project, so check out the readme on the project for the deployment steps.
+
+# A word about timing
