@@ -55,7 +55,7 @@ Fill out the following information:
 | ----- | ----- |
 | Lifecycle Hook Name | Arbitrary.  Name it whatever you like that makes sense |
 | Lifecycle Transition | We only need to take action when a node is terminated, so choose "Instance Terminate" |
-| Heartbeat Timeout | 300 is what I found works the best for our workloads.  However, see the section belw titled timing for further explanation |
+| Heartbeat Timeout | 300 is what I found works the best for our workloads.  However, see the section below titled timing for further explanation |
 | Default Result | This will be what happens when the timeout is reached.  We chose abandon to kill of the lifecycle hook.  Choosing continue would just allow the terminate of the instance to continue |
 | Notification Metadata | Put the name of your cluster here.  This is important because it will be passed to the Lambda, which is used to build the K8S context within the Lambda |
 
@@ -63,7 +63,7 @@ Once it's created, it should look something like this:
 
 ![Lifecycle Hook Created](https://github.com/ryan-a-baker/ryanbakerio/blob/master/img/lifecyclehookcreated.png?raw=true){: .center-block :}
 
-Take a deep breath, that's the last manual thing you'll have to do.  The rest is all defined by running the CloudFormation.
+Take a deep breath, that's the last manual thing you'll have to do.  The rest is all defined by running the CloudFormation template.
 
 ## CloudWatch Event Rule
 
@@ -72,3 +72,13 @@ We've talked about the lifecycle hook creating an event, but there still needs t
 This CloudWatch rule will be created by the CloudFormation template in the repo, but lets review how it's configured.
 
 ![CloudWatch Event Rule](https://github.com/ryan-a-baker/ryanbakerio/blob/master/img/cloudwatcheventrule.png?raw=true){: .center-block :}
+
+There are a couple components here that we care about.  The first configuration is the Event pattern.  Let's look at the configurations and explain what they are doing:
+
+| Field | Value |
+| ----- | ----- |
+| source | This is the AWS service that generates the event.  Since we're watching for auto-scaling events, our value is "aws.autoscaling" |
+| detail-type | This the type of event that's coming from the source.  Since we want to take action when an instance is going to be terminated, our value is "EC2 Instance -terminate lifecycle action" |
+| Detail | This is the list of auto-scaling groups to watch for events from. This supports multiple groups so multiple clusters can be handled by a single rule |
+
+Next, we define the target for the rule to invoke.  In our case, this is the Lambda function that will actually do the draining of the nodes.
