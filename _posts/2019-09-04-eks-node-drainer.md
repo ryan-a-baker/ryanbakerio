@@ -26,7 +26,7 @@ The workflow is quite simple, once you walk through it.
 
 ![EKS Node Drainer Workflow](https://github.com/ryan-a-baker/ryanbakerio/blob/master/img/workflow.png?raw=true){: .center-block :}
 
-First, let's look at how EKS node management works.
+First, let's look at how the fleet management of EKS works.
 
 The instances in an EKS cluster are typically managed by EC2 Auto-Scaling groups (ASG) which is configured to maintain a fixed number of EC2 instances.  If you were to go in to the AWS console and delete one of the EC2 instances in your cluster, the ASG will automatically launch another node with the configuration specified by the ASG's launch configuration, bringing your node count back to the number of instances specified by the ASG.
 
@@ -64,3 +64,11 @@ Once it's created, it should look something like this:
 ![Lifecycle Hook Created](https://github.com/ryan-a-baker/ryanbakerio/blob/master/img/lifecyclehookcreated.png?raw=true){: .center-block :}
 
 Take a deep breath, that's the last manual thing you'll have to do.  The rest is all defined by running the CloudFormation.
+
+## CloudWatch Event Rule
+
+We've talked about the lifecycle hook creating an event, but there still needs to be a mechanism to capture that event and take action on it.  That's where the [CloudWatch Event Rules](https://docs.aws.amazon.com/AmazonCloudWatch/latest/events/WhatIsCloudWatchEvents.html) come in to play.  These rules consume the stream of CloudWatch events and invoke targets when certain events are captured.  In our case, this will be the lifecycle hook that we just set up.
+
+This CloudWatch rule will be created by the CloudFormation template in the repo, but lets review how it's configured.
+
+![CloudWatch Event Rule](https://github.com/ryan-a-baker/ryanbakerio/blob/master/img/cloudwatcheventrule.png?raw=true){: .center-block :}
