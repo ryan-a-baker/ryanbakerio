@@ -40,7 +40,17 @@ Let's take a look at each of these components in depth to learn how they work.  
 
 As mentioned, the heart of EKS's fleet management is managed by an [EC2 auto-scaling group](https://docs.aws.amazon.com/autoscaling/ec2/userguide/AutoScalingGroup.html).  This auto-scaling group ties together the configuration that EKS instances should be deployed with ([EC2 Launch Configuration](https://docs.aws.amazon.com/autoscaling/ec2/userguide/LaunchConfiguration.html)) with the desired scaling parameters to create a logical grouping of EC2 instances.  The auto-scaling group is what defines the number of nodes that are in your EKS cluster, adjusting the desired number of instances on the auto-scaling group will either launch or terminate instances to match your new desired count.
 
-Often times, before nodes are launched or terminated, some sort of action needs to be taken in order to prepare an application for the addition/removal of an instance.  To facilitate this, Amazon provides an [auto-scaling group lifecycle hook](https://docs.aws.amazon.com/autoscaling/ec2/userguide/lifecycle-hooks.html), which can be used to perform any needed action when a lifecycle event occurs.  Since our desire is to drain all pods off a node before it's terminated, we'll be able to take advantage of this functionality as our initiation point for the workflow.
+Often times, before nodes are launched or terminated, some sort of action needs to be taken in order to prepare an application for the addition/removal of an instance.  To facilitate this, Amazon provides an [auto-scaling group lifecycle hook](https://docs.aws.amazon.com/autoscaling/ec2/userguide/lifecycle-hooks.html), which can be used to perform any needed action when a lifecycle event occurs.  Since our desire is to drain all pods off a node before it's terminated, we'll be able to take advantage of this functionality as our initiation point for the workflow.  Perhaps looking at the configuration of this once it's deployed will help make it clear how it works, so let's take a look at a deploy lifecycle hook.
+
+![Lifecycle Hook Created](https://github.com/ryan-a-baker/ryanbakerio/blob/master/img/lifecyclehookcreated.png?raw=true){: .center-block :}
+
+| Field | Value |
+| ----- | ----- |
+| Lifecycle Hook Name | An arbitrary name for the lifecycle hook |
+| Lifecycle Transition | We only need to take action when a node is terminated, so "Instance Terminate" is used |
+| Heartbeat Timeout | 300 is what I found works the best for our workloads.  However, see the section below titled timing for further explanation |
+| Default Result | This will be what happens when the timeout is reached.  We chose abandon to kill of the lifecycle hook.  Choosing continue would just allow the terminate of the instance to continue |
+| Notification Metadata | Put the name of your cluster here.  This is important because it will be passed to the Lambda, which is used to build the K8S context within the Lambda |
 
 ## CloudWatch Event Rule
 
@@ -85,6 +95,6 @@ Deploying the service is a simple 3 step process.
 2. Deploy the CloudFormation which creates the CloudWatch Event Rule, Lambda, and the needed IAM Roles.
 3. Apply the K8S roles to allow the Lambda to authenticate with K8S
 
-It makes more sense to keep the deployment steps tied to the project, so check out the readme on the project for the deployment steps.
+It makes more sense to keep the deployment steps tied to the project, so check out the [readme](https://github.com/ryan-a-baker/eks-node-drainer/blob/master/README.md) on the project for the deployment steps.
 
 # A word about timing
