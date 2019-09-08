@@ -6,7 +6,7 @@ subtitle:  Or... How I got Mongo DB to stop having bad days!
 
 When I first started using EKS several months back, I was pretty impressed by the platform.  Coming from an on-premise world where you have to manage literally everything from hardware to the Kubernetes infrastructure, EKS provided a breath of fresh air.
 
-However, it didn't take long before the honeymoon phase started to wear off.  Things that I would expect to be in place for a hosted Kubernetes provider just weren't there.  Two of the most major things that stuck out to me were version updates (now available, thanks [CVE-2018-1002105](https://github.com/kubernetes/kubernetes/issues/71411)), and graceful pod draining on any sort of scheduled maintenance such as AMI upgrades or instance resize/scaling.
+However, it didn't take long before the honeymoon phase started to wear off.  Things that I would expect to be in place for a hosted Kubernetes provider just weren't there.  Two major things that stuck out to me were version updates (now available, thanks [CVE-2018-1002105](https://github.com/kubernetes/kubernetes/issues/71411)), and graceful pod draining on any sort of scheduled maintenance such as AMI upgrades or instance resize/scaling.
 
 In other hosted Kubernetes platforms like GKE and AKS, an upgrade initiated on a node will first cordon and gracefully "drain" each node before upgrading/replacing it.  When a drain is initiated on a node, the Kubernetes API performs an "evict" on each pod currently running on the host.  In turn, the evict functionality sends a "SIGTERM" signal to each container in the pod.  In a well built container, this "SIGTERM" will be handled and the container will be gracefully shutdown, performing any preparation steps it needs to do on the way down.
 
@@ -18,7 +18,7 @@ We looked at several options that we found while googling.  There was a [github 
 
 AWS also provides you with [guidance](https://docs.aws.amazon.com/eks/latest/userguide/migrate-stack.html) to use eksctl which will drain nodes enabling blue/green node flips between node pools.  While I would have preferred this, we had business requirements which made this not an option.  We needed a better solution, one which would hook in to the existing workflow and make it seamless for us.
 
-As a result, I decided to build a solution, and for the first time in my career, *truly open-source a project!*.  The repo for the project can be found on my [GitHub](https://github.com/ryan-a-baker/eks-node-drainer).
+As a result, I decided to build a solution, and for the first time in my career, *truly open-source a project!*  The repo for the project can be found on my [GitHub](https://github.com/ryan-a-baker/eks-node-drainer).
 
 # The Workflow
 
@@ -34,11 +34,11 @@ ASG’s have a really neat feature called “Lifecycle Hooks” which allow you 
 
 So, if we leverage the lifecycle hooks on the EKS clusters auto-scaling group, we can have a CloudWatch rule invoke a Lambda when a node termination happens, which in turn can call the K8S API to drain the node before allowing the termination to continue.
 
-Let's take a look at each of these components in depth to learn how they work.  My project includes a cloudformation that will deploy most of the artifacts, so you don't have to worry about deploying them if you wish to use this, but it's important to know how it all works together.
+Let's take a look at each of these components in depth to learn how they work.  My project includes a CloudFormation template that will deploy most of the artifacts, so you don't have to worry about deploying them if you wish to use this, but it's important to know how it all works together.
 
-## Auto-Scaling Group Lifecycle hook
+## Auto-Scaling Group Lifecycle Hook
 
-As mentioned, the heart of EKS's fleet management is managed by an [EC2 auto-scaling group](https://docs.aws.amazon.com/autoscaling/ec2/userguide/AutoScalingGroup.html).  This auto-scaling group ties together the configuration that EKS instances should be deployed with ([EC2 Launch Configuration](https://docs.aws.amazon.com/autoscaling/ec2/userguide/LaunchConfiguration.html)) with the desired scaling parameters to create a logical grouping of EC2 instances.  The auto-scaling group is what defines the number of nodes that are in your EKS cluster, adjusting the desired number of instances on the auto-scaling group will either launch or terminate instances to match your new desired count.
+As mentioned, the heart of EKS's fleet management is managed by an [EC2 auto-scaling group](https://docs.aws.amazon.com/autoscaling/ec2/userguide/AutoScalingGroup.html).  This auto-scaling group ties together the configuration that EKS instances are deployed with ([EC2 Launch Configuration](https://docs.aws.amazon.com/autoscaling/ec2/userguide/LaunchConfiguration.html)) to the desired scaling parameters to create a logical grouping of EC2 instances.  The auto-scaling group is what defines the number of nodes that are in your EKS cluster, adjusting the desired number of instances up or down on the auto-scaling group will either launch or terminate instances to match your new desired count.
 
 Often times, before nodes are launched or terminated, some sort of action needs to be taken in order to prepare an application for the addition/removal of an instance.  To facilitate this, Amazon provides an [auto-scaling group lifecycle hook](https://docs.aws.amazon.com/autoscaling/ec2/userguide/lifecycle-hooks.html), which can be used to perform any needed action when a lifecycle event occurs.  Since our desire is to drain all pods off a node before it's terminated, we'll be able to take advantage of this functionality as our initiation point for the workflow.  Perhaps looking at the configuration of this once it's deployed will help make it clear how it works, so let's take a look at a deployed lifecycle hook.
 
@@ -48,7 +48,7 @@ Often times, before nodes are launched or terminated, some sort of action needs 
 | ----- | ----- |
 | Lifecycle Hook Name | An arbitrary name for the lifecycle hook |
 | Lifecycle Transition | We only need to take action when a node is terminated, so "Instance Terminate" is used |
-| Heartbeat Timeout | 300 is what I found works the best for our workloads.  However, see the section below titled timing for further explanation |
+| Heartbeat Timeout | 300 is what I found works the best for our workload, but this can be adjusted to meet your needs |
 | Default Result | This will be what happens when the timeout is reached.  We chose abandon to kill of the lifecycle hook.  Choosing continue would just allow the terminate of the instance to continue |
 | Notification Metadata | Put the name of your cluster here.  This is important because it will be passed to the Lambda, which is used to build the K8S context within the Lambda |
 
@@ -77,15 +77,15 @@ The [lambda function](https://docs.aws.amazon.com/lambda/latest/dg/welcome.html)
 At a very high level, the function does the following:
 
 1.  Convert the EC2 instance ID received from the CloudWatch Event metadata to a hostname so it can be used to call the K8S API to drain the node
-2.  Generate a kubeconfig file that can be loaded for K8S API calls.  Inside the lambda, I am leveraging the [aws-iam-authenticator](https://docs.aws.amazon.com/eks/latest/userguide/install-aws-iam-authenticator.html) to handle the EKS authentication.
+2.  Generate a kubeconfig file that can be loaded for K8S API calls.  Inside the lambda, I am leveraging the [aws-iam-authenticator](https://docs.aws.amazon.com/eks/latest/userguide/install-aws-iam-authenticator.html) to handle the EKS authentication
 3.  Cordon the node via the K8S API
-4.  Loop through every pod on the node, evicting them individually.
-5.  Wait for all pods to complete the eviction
+4.  Loop through every pod on the node, evicting them individually
+5.  Wait for all pods to complete eviction
 6.  Tell the ASG lifecycle hook to continue on
 
-It was a bit surprising to me when I started working on this that the "drain" command which exists in the K8S CLI, does not actually have a corresponding API command.  After doing a bit of research and looking at the source code, I realized that the CLI is actually handling the orchestration to cordon the node and the perform an evict on each pod individually, so I had to recreate that workflow inside the lambda.
+It was a bit surprising to me when I started working on this that the "drain" command which exists in the K8S CLI, does not actually have a corresponding API command.  After doing a bit of research and looking at the source code, I realized that the CLI is actually handling the orchestration to cordon the node and the perform an evict on each pod individually, so I had to recreate that workflow inside the Lambda.
 
-In order for the CloudFormation to create the Lambda, you'll need to upload the zip file located in the repo to S3 in a bucket named "eks-node-drainer".  A future blog post will contain the instructions for how you can build the Lambda if you wish to do that.
+In order for the CloudFormation to create the Lambda, you'll need to upload the zip file located in the repo to S3 in a bucket named "eks-node-drainer".  A future blog post will contain the instructions for how you can build the Lambda if you wish to do that, as I came up with some pretty neat automation to do so.
 
 # Deploying the service
 
@@ -147,3 +147,7 @@ All pods have been evicted. Safe to proceed with node termination
 ```
 
 That's all there is to it!  Be sure to check out the [repo](https://github.com/ryan-a-baker/eks-node-drainer) and happy draining!
+
+# Future Enhancements
+
+Assuming that Amazon doesn't introduce this as a native part of their deployed clusters, I'd like to look at moving this all to a daemonset that runs inside the cluster, and avoid the use of Lambda all together.  I looked at this initially, but couldn't easily find metadata that we could consume from within a daemonset pod that would warn me that a node was pending deletion.  I'm sure there is a way, and one day I'd like to circle back and re-evaluate it.
