@@ -79,6 +79,6 @@ There are a couple components here that we care about.  The first configuration 
 | ----- | ----- |
 | source | This is the AWS service that generates the event.  Since we're watching for auto-scaling events, our value is "aws.autoscaling" |
 | detail-type | This the type of event that's coming from the source.  Since we want to take action when an instance is going to be terminated, our value is "EC2 Instance -terminate lifecycle action" |
-| Detail | This is the list of auto-scaling groups to watch for events from. This supports multiple groups so multiple clusters can be handled by a single rule |
+| detail | This is the list of auto-scaling groups to watch for events from. This supports multiple groups so multiple clusters can be handled by a single rule |
 
 Next, we define the target for the rule to invoke.  In our case, this is the Lambda function that will actually do the draining of the nodes.
