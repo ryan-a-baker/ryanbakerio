@@ -96,3 +96,54 @@ Deploying the service is a simple 3 step process.
 3. Apply the K8S roles to allow the Lambda to authenticate with K8S
 
 It makes more sense to keep the deployment steps tied to the project, so check out the [readme](https://github.com/ryan-a-baker/eks-node-drainer/blob/master/README.md) on the project for the deployment steps.
+
+# Testing it out
+
+Once everything is deployed, it's really simple to test it.  All you need to do is go to the auto-scaling group for a test cluster and change the desired size of the group to be 1 less than it's current size.  This will cause the ASG to auto-select an EC2 instance to terminate, and kick off the draining workflow, which you should be able to see while watching the nodes in the kubernetes cluster:
+
+```
+# kubectl get nodes
+NAME                                         STATUS                     ROLES    AGE     VERSION
+ip-192-168-1-12.us-west-2.compute.internal    Ready,SchedulingDisabled   <none>   16d     v1.13.8-eks-cd3eb0
+ip-192-168-1-42.us-west-2.compute.internal    Ready                      <none>   16d     v1.13.8-eks-cd3eb0
+ip-192-168-1-129.us-west-2.compute.internal   Ready                      <none>   2d23h   v1.13.8-eks-cd3eb0
+```
+
+In the example above, ip-192-168-1-12.us-west-2.compute.internal is currently being drainer by the workflow.  If you want to see further details of what's going on, you can look at the CloudWatch logs for the Lambda:
+
+```
+Recieved a request to evict node ip-192-168-1-12.us-west-2.compute.internal
+
+23:14:07
+Cordoning Node ip-192-168-1-12.us-west-2.compute.internal
+23:14:08
+Evicting test-pod-549745db8d-5qktr in namespace ns1!
+23:14:08
+Evicting test-pod-5c85858bcf-ztcb4 in namespace ns2!
+23:14:08
+Evicting test-pod-596cf97d87-dg29z in namespace ns3!
+...
+23:14:09
+Waiting for 28 pods to evict!
+23:14:15
+Waiting for 24 pods to evict!
+23:14:21
+Waiting for 15 pods to evict!
+23:14:26
+Waiting for 8 pods to evict!
+23:14:31
+Waiting for 5 pods to evict!
+23:14:37
+Waiting for 4 pods to evict!
+23:14:42
+Waiting for 4 pods to evict!
+23:14:47
+Waiting for 1 pods to evict!
+23:14:52
+Waiting for 1 pods to evict!
+...
+23:16:18
+All pods have been evicted. Safe to proceed with node termination
+```
+
+That's all there is to it!  Be sure to check out the [repo](https://github.com/ryan-a-baker/eks-node-drainer) and happy draining!
