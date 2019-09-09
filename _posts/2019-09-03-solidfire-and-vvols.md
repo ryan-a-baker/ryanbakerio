@@ -9,6 +9,8 @@ This is a blog post I wrote back at my previous job in September of 2018 to subm
 
 As far as I know, this is still an issue, but if it's not, there is still some really great troubleshooting information in this post that would be valuable to have out there in the world.  I'd love if some of my VMware or NetApp friends would run across this and help close the loop on some of the lingering questions we had at the bottom of the post, which, at the time of my leaving my previous job, we had not nailed down.
 
+Also - special shout out goes to my team who helped work through a lot of this.  If you guys read this and want your name mentioned, just let me know :)
+
 # Overview of the Problem
 
 Several weeks ago, users of our platform started reporting periodic issues with what appeared to be high latencies on the storage we had allocated to a VMware based environment.  They frequently reported latencies in the 300-400 ms range, which is significantly higher than the 3-4 ms latency we advertised.
