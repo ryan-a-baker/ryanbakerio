@@ -150,3 +150,5 @@ We started to wonder if the combination of vVols and SolidFire introducing laten
 We decided to take a look at each level of queues on the ESXi host, and figure out how they worked to better pinpoint where our problem was.
 
 Let's take a look at what we found on the most basic config.  This is one ESXi host to one SolidFire node, with one vVol storage container only.
+
+![Queue Depth](https://github.com/ryan-a-baker/ryanbakerio/blob/master/img/queuedepth1.png?raw=true){: .center-block :}
