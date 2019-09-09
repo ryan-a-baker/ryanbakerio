@@ -5,7 +5,9 @@ title: SolidFire, vVols, and QoS Noisy Neighbor Issues
 
 # Intro Note
 
-This is a blog post I wrote back in September of 2018 to submit to VMware and NetApp after a pretty nasty issue we had with horrendous disk latency when using NetApp SolidFire presented as vVols to ESXi with low IOPS limits enabled on individual vVols, but I never had anywhere to post it.  Now that I have my blog, I figured it would be a good thing to publicize retroactively.  As far as I know, this is still an issue, but if it's not, there is still some really great information in this post that would be valuable to have out there in the world.
+This is a blog post I wrote back at my previous job in September of 2018 to submit to VMware and NetApp after a pretty nasty issue we had with horrendous disk latency  with the combination of NetApp SolidFire and it's QoS Policies with vVols.  Back then, I never had anywhere to post it.  Now that I have my site, I figured it would be a good thing to publish retroactively.  
+
+As far as I know, this is still an issue, but if it's not, there is still some really great troubleshooting information in this post that would be valuable to have out there in the world.  I'd love if some of my VMware or NetApp friends would run across this and help close the loop on some of the lingering questions we had at the bottom of the post, which, at the time of my leaving my previous job, we had not nailed down.
 
 # Overview of the Problem
 
@@ -151,4 +153,100 @@ We decided to take a look at each level of queues on the ESXi host, and figure o
 
 Let's take a look at what we found on the most basic config.  This is one ESXi host to one SolidFire node, with one vVol storage container only.
 
-![Queue Depth](https://github.com/ryan-a-baker/ryanbakerio/blob/master/img/queuedepth1.png?raw=true){: .center-block :}
+![Queue Depth](https://github.com/ryan-a-baker/ryanbakerio/blob/master/img/queuedepth1.png?raw=true){: .center-block :}'
+
+This diagram breaks it down in to three parts.  The VM (the virtualized hardware), the host (the ESXi Host), and the storage cluster.  The numbers on the left are the default queue depth, the number on the right is the maximum for that queue.
+
+Looking at an individual VM, each VM has a default queue depth of 64, but the SCSI adapter can be 256.  Let's assume that our VM has one disk on it, so it's maximum queue depth is 64.  If the IO of the VM overwhelms that, the IO requests will be queued in the kernel.
+
+The host gets a little bit tricky, and this is where most of confusion was coming from.  The entire HBA adapter has a default queue of 128.  Therefore, a single VM should not be able to overrun the queue.  However, if the queue does get overrun, those requests would be queued in the ESXi kernel.
+
+You can see this value in ESXTOP by pressing 'u'.
+
+![ESXTOP](https://github.com/ryan-a-baker/ryanbakerio/blob/master/img/esxtop.png?raw=true){: .center-block :}'
+
+However, the interesting part to us is that when we were running our tests, we were seeing the DQLEN for our device drop to 32.  From our research, we knew that this was DSNRO kicking in, which effectively kicks in when more than one VM is trying to write to a single device.  Effectively, this lowers the device queue to 32.  In any real world scenario, this will almost always be enabled, especially the more VM's you run on a host.  This is intended to provide that fair scheduling we discussed for ESXi, so we didn't think much about it.  As a side note, the maximum here is the maximum queue for your HBA.
+
+So, taking the same approach, let's try to isolate the queues down.
+
+## VM Queues
+
+We honestly didn't spend much time here.  We knew these queues were not shared.  The thought crossed our mind that maybe we should set these really low and test, but I don't recall that we ever actually did.
+
+## HBA Queue
+
+This one we ruled out from a previous test.  If this queue was causing issues, we would have been able to reproduce the issue when we had one VM on vVols and one on traditional VMFS since this is a shared queue.
+
+## DSNRO Queue
+
+This one mystified us, so we set out to figure out how it worked and if it was a was the culprit.  
+
+DSNRO is a per device queue.  With a out split VMFS and vVol datastores configuration, you have two disk devices, which means 2 separate DSNRO queues:
+
+![Queue Depth](https://github.com/ryan-a-baker/ryanbakerio/blob/master/img/queuedepth2.png?raw=true){: .center-block :}'
+
+You can see these two devices in the esxcli:
+
+```
+exscli storage core device List
+```
+
+Initially, we assumed with 2 separate vVol based datastores you would have two disk devices, but we decided to investigate this a bit further.
+
+Surprisingly, when you create a  second vVol container and create another datastore from it, it is still represented as a single disk device in ESXi, and therefore, a shared DSNRO queue across those datastores:
+
+![Queue Depth](https://github.com/ryan-a-baker/ryanbakerio/blob/master/img/queuedepth3.png?raw=true){: .center-block :}'
+
+So there it is!  We've isolated it down to a single shared component with a happy path (VMFS and vVol) and a sad path (2 vVols) where everything else is exactly the same.
+
+# Hypothesis of the Problem
+
+We believe that having the DSNRO queue set to 32, it opens the possibility of a VM with a single disk could sending 64 requests (it's max queue size), allowing a single VM to overwhelm this queue.  
+
+Typically, this is not a problem, as the DSNRO queue is designed to provide fair scheduling.  This assume, however, that the latency of all requests will be (relatively) the same.
+
+However, given that SolidFire is injecting latency on a per vVol level on the same disk device, it is possible for a single VM to saturate this queue with request that will all have latency injected, despite the fact that a second VM would have no latency injected.  Because these VM's share the DSNRO queue, this means that the good neighbors requests, which have no latency injected by SolidFire, could get stuck behind the bad neighbor VM, which has had latency injected.
+
+Ultimately, we increased the HBA queue to 256:
+
+```
+esxcli system module parameters set -m iscsi_vmk -p iscsivmk_LunQDepth=256
+```
+
+and then, after a reboot, increase the DSNRO for each device to match at 256.  In our lab environment, this was only a single disk device.  However, in a production environment, this would be however many hosts you have in a your SolidFire cluster.  On an initial cluster of 4 hosts, you would have to set this on 4 devices with the following command:
+
+```
+esxcli storage core device set -d naa.xxxxxxxxxxxxxxxxx -o 256
+```
+
+In addition to doing this, we implemented a few other best practice settings (which to our testing, didn't have any impact on this problem) such as:
+
+* Increasing the max io size to 512k to match the IOPS between SolidFire and Vmware for most workloads
+```
+esxcli system settings advanced set -o /ISCSI/MaxIoSizeKB -i 512
+```
+* Increasing the max transfer size to 16mb, which will help with clones/copies
+```
+esxcli system settings advanced set -i 16384 -o /DataMover/MaxHWTransferSize
+```
+* Disabling Delayed ACK on the iSCSI adapter
+
+Once these changes we all in, all latency issues from the bad actor VM's have disappeared, and our latency even with a VM maxing out QoS dropped to ~1ms.
+
+# Lessons Learned
+
+1.  IOPS QoS Policies on SolidFire is a sliding scale by block size.  A Qos Policy with 3k IOPS means 3k 4k IOPS, or 77 512k blocks.
+2.  ESXi will "chunk" IO Operations to 128k blocks by default.  This appears to happen at the HBA layer, as ESXTop does not reflect the IOPS multiplier, but it is observed at the SolidFire layer.
+3.  DSNRO is intended to protect VM's in a situation in which multiple VM's are writing to a single datastore.
+
+# Lingering Questions
+
+1.  It seems that this is occurring because a single VM can saturate the disk device (DSNRO) queue.  Why would we just not increase the HBA and Device queue to the maximum 4096 to ensure that we can't overrun the queue?
+2.  By Default, ESXi "chunks" 512k operations to 128k.  What is the tradeoff to raising this to 512k like we did?
+3.  Setting the DNSRO must be done per disk device.  With SolidFire clusters, every time we add a new device, it's going to appear as another disk device, and we'll have to set this on every node consuming the NetApp.  This is not scalable.  Is there a better way to manage this?  We could probably build an ansible module to do so, but given that it has to done via the CLI, that makes it difficult.
+4.  Would multi-pathing help mitigate this or make it worse with the default commands?  At first, we thought it would help, but it would still appear that a single VM could saturate all 4 paths.  In production, we think it was actually somewhat mitigated because we were using fixed path, which pins a single VM to a single path (disk device).  Therefore, it was only a subset of the VM's on the hypervisor that were pinned to that same path.
+5.  It is our understanding that we could not use multi-pathing since our target and initiators are in different subnets.  Is there any plan to change this?  Why is this a limitation.
+
+# Footnotes
+
+1.  Looking back at this, I'm not sure how we were able to reproduce it with both VM's on a single traditional VMFS datastore, unless we set the IOPS lower than I remember.  This is worth investigating again, but ultimately lead us to finding the issue, so I'm happy it worked out this way.
