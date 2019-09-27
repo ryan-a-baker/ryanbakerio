@@ -1,7 +1,7 @@
 ---
 layout: post
 title: Scaling Pods based on RabbitMQ Queue Depth
-visible: 0
+hidden: true
 ---
 
 # Introduction
