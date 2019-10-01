@@ -26,6 +26,20 @@ Everything you need to deploy this demo can be located in the [k8s-scaling-demo 
 
 To make this as easy as possible, I have included a [deploy.sh script](https://github.com/ryan-a-baker/k8s-scaling-demo/blob/master/deploy.sh), which will deploy all the helm charts that are needed, as well as deploying the sample RabbitMQ app and inject 10k messages in to the "task_queue".
 
+To get started, clone the repo the repo locally, then run the deploy script
+
+```
+./deploy.sh
+```
+
+This will deploy the RabbitMQ, Prometheus, Prometheus Adapter, and a sample RabbitMQ python script.
+
+In order to demonstrate the scaling, sample python application has two components, a publisher and a worker, which were based off the [RabbitMQ tutorials](https://www.rabbitmq.com/getstarted.html). The publisher runs as a Kubernetes job and will inject 10,000 messages in to the the RabbitMQ server with a random number of periods (between 2 and 10) in the message.  The worker will then pull the messages off the queue, and sleep a second for each of the periods that in the message.  This was done to simulate handling an event that is not CPU or Memory bound (such as making an API call, performing a SQL query, etc).
+
+Initially, the deployment script will deploy the application with only 1 worker Pod.  Allowed to run, this would take well over 16 hours to clear all the messages in the queue.
+
+Once it's deployed, you can work through the workflow below, which will walk you through each component and how it's configured to make automatic scaling work.
+
 # Workflow
 
 Let's take a look at all the components that go in to this demo and the workflow:
@@ -43,7 +57,3 @@ metrics:
   enabled: true
   port: 9090
 ```
-
-
-
-# Deploying
