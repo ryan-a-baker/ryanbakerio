@@ -14,15 +14,15 @@ Luckily, Kubernetes allows you to create [custom metrics](https://kubernetes.io/
 
 I've run across too many use cases where scaling pods based on queue depth would be incredibly useful, so I decided focus in and get this working and share it with the world.  After quite a bit of fiddling, I was able to get it working with a combination of [Prometheus](https://prometheus.io/), the [Prometheus Adapter](https://github.com/DirectXMan12/k8s-prometheus-adapter), the [RabbitMQ Exporter](https://github.com/kbudde/rabbitmq_exporter), and some sample [RabbitMQ services](https://github.com/ryan-a-baker/k8s-scaling-demo/tree/master/RabbitMQ-Samples) I created.
 
-It'll probably be easiest to deploy the demo first, then walk through each of the components so you can see them live if you wish.
-
 # Deployment
+
+It'll probably be easiest to deploy the demo first, then walk through each of the components so you can see them live if you wish.
 
 Everything you need to deploy this demo can be located in the [k8s-scaling-demo repo](https://github.com/ryan-a-baker/k8s-scaling-demo).  There are a few requirements you will need in order to do this demo though:
 
 1.  A Kubernetes Cluster ([minikube](https://kubernetes.io/docs/setup/learning-environment/minikube/) will be fine)
 2.  Helm deployed (Instructions [here](https://helm.sh/docs/using_helm/))
-3.  Support for HPA version v2beta2
+3.  Support for HPA version v2beta2 (`kubectl get apiservices | grep "autoscaling"`)
 
 To make this as easy as possible, I have included a [deploy.sh script](https://github.com/ryan-a-baker/k8s-scaling-demo/blob/master/deploy.sh), which will deploy all the helm charts that are needed, as well as deploying the sample RabbitMQ app and inject 10k messages in to the "task_queue".
 
