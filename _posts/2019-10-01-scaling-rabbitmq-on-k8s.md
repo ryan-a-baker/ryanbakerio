@@ -106,7 +106,7 @@ kubectl port-forward -n rabbitmq-scaling-demo service/prometheus-scaling-demo-se
 
 Once that's running, let's take a look at the console at http://localhost:8080/graph.
 
-The landing page won't have much on it, as we have to query for the metric we are interested in, so lets do that.  In the query box, let's enter the following query in order to see the data it has collected:
+The landing page won't have much on it, as we have to query for the metric we are interested in, so lets do that.  In the query box, enter the following query in order to see the data it has collected:
 
 ```
 rabbitmq_queue_messages{kubernetes_name="rabbitmq-server-scaling-demo",kubernetes_namespace="rabbitmq-scaling-demo",queue="task_queue"}
@@ -115,3 +115,20 @@ rabbitmq_queue_messages{kubernetes_name="rabbitmq-server-scaling-demo",kubernete
 Once that's entered, execute the query and the go to the graph page to view the historical number of messages in the queue.  You should see something like this:
 
 ![Prometheus Graph](https://github.com/ryan-a-baker/ryanbakerio/blob/master/_posts/scaling-rabbit-images/prometheus_graph.png?raw=true){: .center-block :}
+
+You can see from the graph that I've published 50 messages a couple of times, and the slowly the worker node processed those messages out of the queue.
+
+But how did Prometheus know to collect that data?  That's where the magic comes in.  With Kubernetes, Prometheus can query Kubernetes for resources (such as pods and services) that it should try to "scrape" metrics from.  This is done by adding annotations on to the resource.  Let's take a look at the RabbitMQ-server service:
+
+```
+➜  ~ kubectl get service rabbitmq-server-scaling-demo -n rabbitmq-scaling-demo -o yaml
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    prometheus.io/port: "9090"
+    prometheus.io/scrape: "true"
+....
+```
+
+As you can see, there are annotations that tell Prometheus that this resource should be scraped, and which port to scrape it on.  From there, Prometheus handles the rest.  Magic right?
