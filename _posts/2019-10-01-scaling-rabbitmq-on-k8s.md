@@ -58,10 +58,10 @@ metrics:
   port: 9090
 ```
 
-Let's take a look at the RabbitMQ management page by using port-fowarding to access the RabbitMQ management
+Let's take a look at the RabbitMQ management page by using port-fowarding to access the RabbitMQ management and metrics exporter page:
 
 ```
-kubectl port-forward -n rabbitmq-scaling-demo svc/rabbitmq-server-scaling-demo 15672:15672
+kubectl port-forward -n rabbitmq-scaling-demo svc/rabbitmq-server-scaling-demo 15672:15672 9090:9090
 ```
 
 With a browser, you can now access the management page at http://127.0.0.1:5672.  The username is `admin-demo` and the password is `dynamicscale123!`
@@ -77,3 +77,41 @@ This will run a pod on our Kubernetes cluster that injects 50 messages in to the
 ![Message Example](https://github.com/ryan-a-baker/ryanbakerio/blob/master/_posts/scaling-rabbit-images/rabbitmq-manager.png?raw=true){: .center-block :}
 
 The number may now be less than 50 that we published because the worker pod that we deployed earlier is consuming the messages.  You'll also actively be able to see the number falling as the worker pulls messages off the queue.  We'll cover that more in a bit.
+
+Let's also take a look at the RabbitMQ Exporter, which can be viewed at http://127.0.0.1:9090/metrics.  A whole bunch of metrics will be returned which  are all exposed in a format that Prometheus knows how to scrape and understand.  If you do a search on the page for "task_queue", you can see all the metrics related to the queue we created and published messages to above.
+
+The metric we care about looks like the following:
+
+```
+# HELP rabbitmq_queue_messages Sum of ready and unacknowledged messages (queue depth).
+# TYPE rabbitmq_queue_messages gauge
+rabbitmq_queue_messages{durable="true",policy="",queue="task_queue",vhost="/"} 40
+```
+
+This is the total number of unprocessed messages in our queue "task_queue".  This will be the metric that we'll use to scale pods on.
+
+Take a look around, there are a ton of awesome metrics that the exporter exposes!
+
+# Prometheus
+
+If you aren't familiar with Prometheus, it's a monitoring system based on a time series database that has become the standard tool to use to monitor both Kubernetes, as well as the workloads running inside of it.  While discussing all the features of Prometheus is outside the scope of this blog post (maybe in the future?), I highly encourage you to check it out if you haven't already.  Coupling this with [Grafana](https://grafana.com/) can give you some insanely powerful visibility in the health and status of your Kubernetes cluster.
+
+For the purpose of this blog post, we're going to leverage Prometheus as the collector of the metrics from the RabbitMQ exporter and in turn, the endpoint that the Prometheus Adapter will use to expose the metrics via the Kubernetes API.
+
+It's already been deployed as part of our deployment, so let's take a look at it by using port forwarding again:
+
+```
+kubectl port-forward -n rabbitmq-scaling-demo service/prometheus-scaling-demo-server 8080:80
+```
+
+Once that's running, let's take a look at the console at http://localhost:8080/graph.
+
+The landing page won't have much on it, as we have to query for the metric we are interested in, so lets do that.  In the query box, let's enter the following query in order to see the data it has collected:
+
+```
+rabbitmq_queue_messages{kubernetes_name="rabbitmq-server-scaling-demo",kubernetes_namespace="rabbitmq-scaling-demo",queue="task_queue"}
+```
+
+Once that's entered, execute the query and the go to the graph page to view the historical number of messages in the queue.  You should see something like this:
+
+![Prometheus Graph](https://github.com/ryan-a-baker/ryanbakerio/blob/master/_posts/scaling-rabbit-images/prometheus_graph.png?raw=true){: .center-block :}
