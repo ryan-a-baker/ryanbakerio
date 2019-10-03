@@ -20,8 +20,8 @@ It'll probably be easiest to deploy the demo first, then walk through each of th
 
 Everything you need to deploy this demo can be located in the [k8s-scaling-demo repo](https://github.com/ryan-a-baker/k8s-scaling-demo).  There are a few requirements you will need in order to do this demo though:
 
-1.  A Kubernetes Cluster ([minikube](https://kubernetes.io/docs/setup/learning-environment/minikube/) will be fine)
-2.  Helm deployed (Instructions [here](https://helm.sh/docs/using_helm/))
+1.  A Kubernetes Cluster with kubectl setup([minikube](https://kubernetes.io/docs/setup/learning-environment/minikube/) will be fine)
+2.  Helm deployed to the K8S cluster and a local helm client (Instructions [here](https://helm.sh/docs/using_helm/))
 3.  Support for HPA version v2beta2 (`kubectl get apiservices | grep "autoscaling"`)
 
 To make this as easy as possible, I have included a [deploy.sh script](https://github.com/ryan-a-baker/k8s-scaling-demo/blob/master/deploy.sh), which will deploy all the helm charts that are needed, as well as deploying the sample RabbitMQ app and inject 10k messages in to the "task_queue".
@@ -34,7 +34,7 @@ To get started, clone the repo the repo locally, then run the deploy script
 
 This will deploy the RabbitMQ, Prometheus, Prometheus Adapter, and a sample RabbitMQ python script.
 
-In order to demonstrate the scaling, the sample python application has two components, a publisher and a worker, which were based off the [RabbitMQ tutorials](https://www.rabbitmq.com/getstarted.html). The publisher runs as a Kubernetes job and will inject 10,000 messages in to the the RabbitMQ server with a random number of periods (between 2 and 10) in the message.  The worker will then pull the messages off the queue, and sleep one second for each of the periods that in the message.  This was done to simulate handling an event that is not CPU or Memory bound (such as making an API call, performing a SQL query, etc).
+In order to demonstrate the scaling, the sample python application has two components, a publisher and a worker, which were based off the [RabbitMQ tutorials](https://www.rabbitmq.com/getstarted.html). The publisher will inject the number of requested of messages in to the the RabbitMQ server with a random number of periods (between 2 and 10) in the message.  The worker will then pull the messages off the queue, and sleep one second for each of the periods that in the message.  This was done to simulate handling an event that is not CPU or Memory bound (such as making an API call, performing a SQL query, etc).
 
 Initially, the deployment script will deploy the application with only 1 worker Pod.  Allowed to run, this would take well over 16 hours to clear all the messages in the queue.
 
@@ -65,3 +65,15 @@ kubectl port-forward -n rabbitmq-scaling-demo svc/rabbitmq-server-scaling-demo 1
 ```
 
 With a browser, you can now access the management page at http://127.0.0.1:5672.  The username is `admin-demo` and the password is `dynamicscale123!`
+
+When you initially log you, in you won't see any much, as we haven't created any queues or published any messages.  Let's go ahead and do that now by running the following:
+
+```
+kubectl run publish -it --rm --image=theryanbaker/rabbitmq-scaling-demo --restart=Never publish 50
+```
+
+This will run a pod on our Kubernetes cluster that injects 50 messages in to the "task_queue".  Now, you can click on the "Queues" tab and you'll see that there was a queue named "task_queue" created, and it should have some messages in it.  
+
+![Message Example](https://github.com/ryan-a-baker/ryanbakerio/blob/master/_posts/scaling-rabbit-images/rabbitmq-manager.png?raw=true){: .center-block :}
+
+The number may now be less than 50 that we published because the worker pod that we deployed earlier is consuming the messages.  You'll also actively be able to see the number falling as the worker pulls messages off the queue.  We'll cover that more in a bit.
