@@ -128,7 +128,176 @@ metadata:
   annotations:
     prometheus.io/port: "9090"
     prometheus.io/scrape: "true"
-....
+...
 ```
 
 As you can see, there are annotations that tell Prometheus that this resource should be scraped, and which port to scrape it on.  From there, Prometheus handles the rest.  Magic right?
+
+## Prometheus Adapter
+
+We've established that Prometheus will gather the metrics from RabbitMQ and store it in it's time series database, but there has to be a mechanism which will enable those metrics to be accessible from the Kubernetes API.  This is where the prometheus adapter is.
+
+Essentially, the Prometheus adapter is an intermediary between the Kubernetes API and the Prometheus API.  You configure the adapter on what Prometheus metrics you wish to expose to the K8S API, and how to interpret those metrics.
+
+Out of the box, the Prometheus Adapter comes with a ton of precanned configurations for exposing metrics from Prometheus to the K8S API. However, for simplicity, this demo disables all of the out of box configurations and only configures one for the number of messages in a given RabbitMQ queue.  Let's take a look at that [configuration](https://github.com/ryan-a-baker/k8s-scaling-demo/blob/master/charts/prometheus-adapter/config.yaml#L18-L23) we deployed earlier located within the Helm Charts values file for the prometheus adapter:
+
+```
+- seriesQuery: 'rabbitmq_queue_messages{kubernetes_name!="",kubernetes_namespace!=""}'
+  resources:
+    overrides:
+      kubernetes_namespace: {resource: "namespace"}
+      kubernetes_name: {resource: "service"}
+  metricsQuery: sum(<<.Series>>{<<.LabelMatchers>>,queue="task_queue"}) by (<<.GroupBy>>)
+```
+
+This was built by walking through the [configuration demo](https://needsurl).  I highly suggest walking through it to get a better understanding of the configuration, but I'll walk through it briefly.
+
+The first part of the query is the "seriesQuery", which basically instructs the adapter which series of the data we are interested in.  We also limit the namespace and name of the service here.  Take a look at the query we executed against Prometheus earlier:
+
+```
+rabbitmq_queue_messages{kubernetes_name="rabbitmq-server-scaling-demo",kubernetes_namespace="rabbitmq-scaling-demo",queue="task_queue"}
+```
+
+Our configuration tells the Prometheus adapter to gather all series for data for the metric named "rabbitmq_queue_messages" metric where the labels on the metric for kubernetes_namespace and kubernetes_name (of the service) are not empty.
+
+Because kubernetes_namespace and kubernetes_name don't align with the actual name of the kubernetes resources (which would be just namespace and name), the "overrides" maps the Kubernetes resource to the label we want to query prometheus.
+
+The final part of the configuration is the query, which tells the adapter the query to run on Prometheus to gather the data.  The adapter will replace the "series" variable with rabbitmq_queue_messages and the "LabelMatchers" variable with the label selector and values for kubernetes_namespace and kuberentes_name.  The values for the selectors will be filled in later when we do the HPA, so just hang tight on that.
+
+You may be asking yourself, can't we just variablize the queue too?  I would say yes, and the [documentation] would indicate as such, but I haven't had any luck getting that to work so I'm just manually entering it in the configuration.  This isn't optimal because you'd have have to have a line in the configuration for each queue that you are want to scale off.  Maybe soon I'll get back to variablizing that part too...
+
+The configuration has been applied, but let's take a look at some of components in Kubernetes that makes this all work.
+
+First off, let's look at the new API service that the Prometheus adapter created:
+
+```
+kubectl get --raw /apis/custom.metrics.k8s.io/v1beta1
+```
+
+Which results in the following output:
+
+```{
+  "kind": "APIResourceList",
+  "apiVersion": "v1",
+  "groupVersion": "custom.metrics.k8s.io/v1beta1",
+  "resources": [
+    {
+      "name": "services/rabbitmq_queue_messages",
+      "singularName": "",
+      "namespaced": true,
+      "kind": "MetricValueList",
+      "verbs": [
+        "get"
+      ]
+    },
+    {
+      "name": "namespaces/rabbitmq_queue_messages",
+      "singularName": "",
+      "namespaced": false,
+      "kind": "MetricValueList",
+      "verbs": [
+        "get"
+      ]
+    }
+  ]
+}
+```
+
+You can see that a resource was created for both of our series qualifiers we defined earlier (services and namespaces).  
+
+We can use this information to query our new custom metrics API to make sure everything is working before we try to build an HPA for it:
+
+```
+➜  ~ kubectl get --raw /apis/custom.metrics.k8s.io/v1beta1/namespaces/rabbitmq-scaling-demo/services/rabbitmq-server-scaling-demo/rabbitmq_queue_messages?metricLabelSelector=queue%3Dtasks_queue
+```
+
+Which will result in the following information:
+
+```
+{
+  "kind": "MetricValueList",
+  "apiVersion": "custom.metrics.k8s.io/v1beta1",
+  "metadata": {
+    "selfLink": "/apis/custom.metrics.k8s.io/v1beta1/namespaces/rabbitmq-scaling-demo/services/rabbitmq-server-scaling-demo/rabbitmq_queue_messages"
+  },
+  "items": [
+    {
+      "describedObject": {
+        "kind": "Service",
+        "namespace": "rabbitmq-scaling-demo",
+        "name": "rabbitmq-server-scaling-demo",
+        "apiVersion": "/v1"
+      },
+      "metricName": "rabbitmq_queue_messages",
+      "timestamp": "2019-10-04T14:10:31Z",
+      "value": "0"
+    }
+  ]
+}
+```
+
+The results of the above kubectl (especially the "describedObject") command proved very helpful when building out the HPA, so let's take a look at that next.
+
+## HPA
+
+The final piece of the puzzle is the HPA that is defined.  This will give Kubernetes the information of what target to scale, and when to scale it.
+
+Let's take a look at our [configuration for the hpa](https://github.com/ryan-a-baker/k8s-scaling-demo/blob/master/charts/rabbitmq-sample-app/templates/hpa.yaml):
+
+```
+apiVersion: autoscaling/v2beta2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: rabbitmq-server-scaling-demo-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: extensions/v1beta1
+    kind: Deployment
+    name: worker
+  minReplicas: 1
+  maxReplicas: 50
+  metrics:
+  - type: Object
+    object:
+      metric:
+        name: rabbitmq_queue_messages
+      describedObject:
+        apiVersion: "/v1"
+        kind: Service
+        name: rabbitmq-server-scaling-demo
+      target:
+        type: Value
+        value: 100
+```
+
+The scale target section should be familiar, as it's the same as HPA's based on CPU or RAM metrics.  It tells the HPA the exact path to the target that should be scaled.  In our case, it's the worker deployment, which consumes messages from RabbitMQ.
+
+The metrics section introduces the "Object" type, which will be leverage for custom metrics.  I honestly struggled with getting this working until I realized that the information that it wanted was a direct reference to the "describedObject" from the Prometheus Adapter.
+
+Finally, our target is set to 100, which means that the HPA should scale the deployment to ensure there is 1 pod for every 100 messages in the queue.  Let's try this out!
+
+First, let's look at the current state of the HPA.  Assuming you have been diligently working through this blog post, paying attention to every single detail, the single worker node should have worked through all the messages we published earlier.
+
+```
+➜  ~ kubectl -n rabbitmq-scaling-demo get hpa
+NAME                               REFERENCE           TARGETS   MINPODS   MAXPODS   REPLICAS   AGE
+rabbitmq-server-scaling-demo-hpa   Deployment/worker   0/100     1         50        1          2d9h
+```
+
+As you can see, there is only 1 worker because there is not currently any messages in to the queue.
+
+Let's max this thing out and see what happens by running our publisher to inject 5000 events.  Remember, we set the scaling to 1 pod per 100 messages, and our max pods to 50.  So, if all goes well, this should max our pods out:
+
+```
+➜  ~ kubectl run publish -it --rm --image=theryanbaker/rabbitmq-scaling-demo --restart=Never publish 5000
+```
+
+Wait a few minutes, then check out the HPA again:
+
+```
+➜  ~ kubectl get hpa                                                                            
+NAME                               REFERENCE           TARGETS    MINPODS   MAXPODS   REPLICAS   AGE
+rabbitmq-server-scaling-demo-hpa   Deployment/worker   4987/100   1         50        50         2d10h
+```
+
+Boom!  50 pods have been launched to handled the load!
