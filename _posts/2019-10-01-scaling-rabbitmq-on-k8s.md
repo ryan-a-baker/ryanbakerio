@@ -213,8 +213,7 @@ We can use this information to query our new custom metrics API to make sure eve
 
 Which will result in the following information:
 
-```
-{
+```{
   "kind": "MetricValueList",
   "apiVersion": "custom.metrics.k8s.io/v1beta1",
   "metadata": {
