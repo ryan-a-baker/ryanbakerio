@@ -243,8 +243,7 @@ The final piece of the puzzle is the HPA that is defined.  This will give Kubern
 
 Let's take a look at our [configuration for the hpa](https://github.com/ryan-a-baker/k8s-scaling-demo/blob/master/charts/rabbitmq-sample-app/templates/hpa.yaml):
 
-```
-apiVersion: autoscaling/v2beta2
+```apiVersion: autoscaling/v2beta2
 kind: HorizontalPodAutoscaler
 metadata:
   name: rabbitmq-server-scaling-demo-hpa
@@ -279,7 +278,8 @@ First, let's look at the current state of the HPA.  Assuming you have been dilig
 
 ```
 ➜  ~ kubectl -n rabbitmq-scaling-demo get hpa
-NAME                               REFERENCE           TARGETS   MINPODS   MAXPODS   REPLICAS   AGE
+```
+```NAME                               REFERENCE           TARGETS   MINPODS   MAXPODS   REPLICAS   AGE
 rabbitmq-server-scaling-demo-hpa   Deployment/worker   0/100     1         50        1          2d9h
 ```
 
