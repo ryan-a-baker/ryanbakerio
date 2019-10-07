@@ -116,7 +116,7 @@ Once that's entered, execute the query and the go to the graph page to view the 
 
 ![Prometheus Graph](https://github.com/ryan-a-baker/ryanbakerio/blob/master/_posts/scaling-rabbit-images/prometheus_graph.png?raw=true){: .center-block :}
 
-You can see from the graph that I've published 50 messages a couple of times, and the slowly the worker node processed those messages out of the queue.
+You can see from the graph that I've published 50 messages a couple of times, and slowly the worker node processed those messages out of the queue.
 
 But how did Prometheus know to collect that data?  That's where the magic comes in.  With Kubernetes, Prometheus can query the Kubernetes API for resources (such as pods and services) that it should try to "scrape" metrics from.  This is done by adding annotations on to the resource.  Let's take a look at the RabbitMQ-server service:
 
@@ -146,7 +146,8 @@ Essentially, the Prometheus adapter is an intermediary between the Kubernetes AP
 
 Out of the box, the Prometheus Adapter comes with a ton of pre-canned "rules" for exposing metrics from Prometheus to the K8S API. However, for simplicity, this demo disables all of the out of box configurations and only configures a rule to gather the number of messages in a given RabbitMQ queue.  Let's take a look at that [configuration](https://github.com/ryan-a-baker/k8s-scaling-demo/blob/master/charts/prometheus-adapter/config.yaml#L18-L23) we deployed earlier located within the Helm Charts values file for the prometheus adapter:
 
-```- seriesQuery: 'rabbitmq_queue_messages{kubernetes_name!="",kubernetes_namespace!=""}'
+```
+- seriesQuery: 'rabbitmq_queue_messages{kubernetes_name!="",kubernetes_namespace!=""}'
   resources:
     overrides:
       kubernetes_namespace: {resource: "namespace"}
