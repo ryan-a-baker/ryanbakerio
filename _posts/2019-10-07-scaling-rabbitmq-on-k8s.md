@@ -8,7 +8,7 @@ hidden: true
 
 Kubernetes has a wonderful feature called [horizontal pod autoscaling](https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/) that allows scaling of pods in your deployment based on the load that the service is experiencing.  Out of the box, it has the ability to watch CPU and Memory consumption and scale according to those metrics.  What happens if you have a service that isn't bound my CPU or Memory though?
 
-For example, at the heart of lot of applications are AMQP services (such as RabbitMQ) which are leveraged to pass messages back and forth between services.  Wouldn't it make more sense to scale the services based on the depth of the queue that the service is consuming instead of basing it of CPU or Memory?  This makes a lot more sense, especially if you consider that the consumer of messages may not be CPU or memory bound at all. Basing your HPA off those metrics alone could actually cause more harm than good.
+For example, many applications rely on AMQP services (such as RabbitMQ) which are leveraged to pass messages back and forth between services.  Wouldn't it make more sense to scale the services based on the depth of a given queue instead of CPU or Memory?  This makes a lot more sense, especially if you consider that the consumer of messages may not be CPU or memory bound at all. Basing your HPA off those metrics alone could actually cause more harm than good.
 
 Luckily, Kubernetes allows you to create [custom metrics](https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/#support-for-custom-metrics) which you can base HPA's on.  There are several blog posts about this (especially around http request rates), but it appears that it has moved so fast that even blog posts that are six months old are no longer working.  Google also has some [examples](https://cloud.google.com/kubernetes-engine/docs/tutorials/custom-metrics-autoscaling), but their examples leverage StackDriver.  What if you are on-premise or multi-cloud and can't be bound to Google services?
 
@@ -24,7 +24,7 @@ Everything you need to deploy this demo can be located in the [k8s-scaling-demo 
 2.  Helm deployed to the K8S cluster and a local helm client (Instructions [here](https://helm.sh/docs/using_helm/))
 3.  Support for HPA version v2beta2 (`kubectl get apiservices | grep "autoscaling"`)
 
-To make this as easy as possible, I have included a [deploy.sh script](https://github.com/ryan-a-baker/k8s-scaling-demo/blob/master/deploy.sh), which will deploy all the helm charts that are needed, as well as deploying the sample RabbitMQ app and inject 10k messages in to the "task_queue".
+To make this as easy as possible, I have included a [deploy.sh script](https://github.com/ryan-a-baker/k8s-scaling-demo/blob/master/deploy.sh), which will deploy all the helm charts that are needed, as well as deploying a sample consumer of messages.  
 
 To get started, clone the repo the repo locally, then run the deploy script
 
@@ -32,13 +32,13 @@ To get started, clone the repo the repo locally, then run the deploy script
 ./deploy.sh
 ```
 
-This will deploy the RabbitMQ, Prometheus, Prometheus Adapter, and a sample RabbitMQ python script.
+This will deploy the RabbitMQ, Prometheus, Prometheus Adapter, and a sample RabbitMQ python application..
 
-In order to demonstrate the scaling, the sample python application has two components, a publisher and a worker, which were based off the [RabbitMQ tutorials](https://www.rabbitmq.com/getstarted.html). The publisher will inject the number of requested of messages in to the the RabbitMQ server with a random number of periods (between 2 and 10) in the message.  The worker will then pull the messages off the queue, and sleep one second for each of the periods that in the message.  This was done to simulate handling an event that is not CPU or Memory bound (such as making an API call, performing a SQL query, etc).
+In order to demonstrate the scaling, the sample python application has two components, a publisher and a worker, which were based off the [RabbitMQ tutorials](https://www.rabbitmq.com/getstarted.html). The publisher will be run adhoc and will publish the number of requested of messages in to the the RabbitMQ server with a random number of periods (between 2 and 10) in the message.  The worker will then pull the messages off the queue, and sleep one second for each of the periods that in the message.  This was done to simulate handling an event that is not CPU or Memory bound (such as making an API call, performing a SQL query, etc).
 
-Initially, the deployment script will deploy the application with only 1 worker Pod.  Allowed to run, this would take well over 16 hours to clear all the messages in the queue.
+Initially, the deployment script will deploy the application with only 1 worker pod, but does have a HPA already configured to scale based on queue depth, which will explore later.
 
-Once it's deployed, you can work through the workflow below, which will walk you through each component and how it's configured to make automatic scaling work.  It will also walk you through setting up the HPA to see the pods scale to help empty to the queue.
+Once it's deployed, you can work through the workflow below, which will walk you through each component and how it's configured to make automatic scaling work.
 
 # Workflow
 
@@ -46,9 +46,9 @@ Let's take a look at all the components that go in to this demo and the workflow
 
 ![Workflow](https://github.com/ryan-a-baker/ryanbakerio/blob/master/_posts/scaling-rabbit-images/workflow.png?raw=true){: .center-block :}
 
-## RabbitMQ Server and the RabbitMQ Exporter
+## RabbitMQ Server, Exporter, and Sample Applications
 
-At the heart of this demo is the RabbitMQ service, which is a typical deployment based on the [RabbitMQ helm chart]([bitnami](https://github.com/helm/charts/tree/master/stable/rabbitmq) from Bitnami.  There is a unique aspect to this deployment though, and that is the addition of the RabbitMQ Exporter.  This runs as the "metrics" container inside of the RabbitMQ pod, and it's purpose is to export metrics from RabbitMQ via HTTP in a format that Prometheus can "scrape" to collect data.
+At the heart of this demo is the RabbitMQ service, which is a typical deployment based on the [RabbitMQ helm chart](https://github.com/helm/charts/tree/master/stable/rabbitmq) from Bitnami.  There is a unique aspect to this deployment though, and that is the addition of the RabbitMQ Exporter.  This runs as the "metrics" container inside of the RabbitMQ pod, and it's purpose is to export metrics from RabbitMQ via HTTP in a format that Prometheus can "scrape" to collect data.
 
 With the helm chart for RabbitMQ, it's very easy to enable this as part of your [values file](https://github.com/ryan-a-baker/k8s-scaling-demo/blob/master/charts/rabbitmq/values.yaml#L18-L20)
 
@@ -72,7 +72,7 @@ When you initially log you, in you won't see any much, as we haven't created any
 kubectl run publish -it --rm --image=theryanbaker/rabbitmq-scaling-demo --restart=Never publish 50
 ```
 
-This will run a pod on our Kubernetes cluster that injects 50 messages in to the "task_queue".  Now, you can click on the "Queues" tab and you'll see that there was a queue named "task_queue" created, and it should have some messages in it.  
+This will run a pod on our Kubernetes cluster that publishes 50 messages in to the "task_queue".  Now, you can click on the "Queues" tab and you'll see that there was a queue named "task_queue" created, and it should have some messages in it.  
 
 ![Message Example](https://github.com/ryan-a-baker/ryanbakerio/blob/master/_posts/scaling-rabbit-images/rabbitmq-manager.png?raw=true){: .center-block :}
 
@@ -82,8 +82,7 @@ Let's also take a look at the RabbitMQ Exporter, which can be viewed at http://1
 
 The metric we care about looks like the following:
 
-```
-# HELP rabbitmq_queue_messages Sum of ready and unacknowledged messages (queue depth).
+```# HELP rabbitmq_queue_messages Sum of ready and unacknowledged messages (queue depth).
 # TYPE rabbitmq_queue_messages gauge
 rabbitmq_queue_messages{durable="true",policy="",queue="task_queue",vhost="/"} 40
 ```
@@ -94,7 +93,7 @@ Take a look around, there are a ton of awesome metrics that the exporter exposes
 
 # Prometheus
 
-If you aren't familiar with Prometheus, it's a monitoring system based on a time series database that has become the standard tool to use to monitor both Kubernetes, as well as the workloads running inside of it.  While discussing all the features of Prometheus is outside the scope of this blog post (maybe in the future?), I highly encourage you to check it out if you haven't already.  Coupling this with [Grafana](https://grafana.com/) can give you some insanely powerful visibility in the health and status of your Kubernetes cluster.
+If you aren't familiar with Prometheus, it's a monitoring system based on a time series database that has become the standard tool to use to monitor both Kubernetes, as well as the workloads running inside of it.  While discussing all the features of Prometheus is outside the scope of this blog post (maybe in the future?), I highly encourage you to check it out if you haven't already.  Coupling this with [Grafana](https://grafana.com/) can give you insanely powerful visibility in the health and status of both your Kubernetes cluster applications.
 
 For the purpose of this blog post, we're going to leverage Prometheus as the collector of the metrics from the RabbitMQ exporter and in turn, the endpoint that the Prometheus Adapter will use to expose the metrics via the Kubernetes API.
 
@@ -118,11 +117,14 @@ Once that's entered, execute the query and the go to the graph page to view the 
 
 You can see from the graph that I've published 50 messages a couple of times, and the slowly the worker node processed those messages out of the queue.
 
-But how did Prometheus know to collect that data?  That's where the magic comes in.  With Kubernetes, Prometheus can query Kubernetes for resources (such as pods and services) that it should try to "scrape" metrics from.  This is done by adding annotations on to the resource.  Let's take a look at the RabbitMQ-server service:
+But how did Prometheus know to collect that data?  That's where the magic comes in.  With Kubernetes, Prometheus can query the Kubernetes API for resources (such as pods and services) that it should try to "scrape" metrics from.  This is done by adding annotations on to the resource.  Let's take a look at the RabbitMQ-server service:
 
 ```
 ➜  ~ kubectl get service rabbitmq-server-scaling-demo -n rabbitmq-scaling-demo -o yaml
-apiVersion: v1
+```
+
+Which gives us the following (abbreviated):
+```apiVersion: v1
 kind: Service
 metadata:
   annotations:
@@ -135,14 +137,13 @@ As you can see, there are annotations that tell Prometheus that this resource sh
 
 ## Prometheus Adapter
 
-We've established that Prometheus will gather the metrics from RabbitMQ and store it in it's time series database, but there has to be a mechanism which will enable those metrics to be accessible from the Kubernetes API.  This is where the prometheus adapter is.
+We've established that Prometheus will gather the metrics from RabbitMQ and store it in it's time series database, but there has to be a mechanism which will enable those metrics to be accessible from the Kubernetes API.  This is where the [Prometheus adapter](https://github.com/DirectXMan12/k8s-prometheus-adapter) comes in.
 
 Essentially, the Prometheus adapter is an intermediary between the Kubernetes API and the Prometheus API.  You configure the adapter on what Prometheus metrics you wish to expose to the K8S API, and how to interpret those metrics.
 
-Out of the box, the Prometheus Adapter comes with a ton of precanned configurations for exposing metrics from Prometheus to the K8S API. However, for simplicity, this demo disables all of the out of box configurations and only configures one for the number of messages in a given RabbitMQ queue.  Let's take a look at that [configuration](https://github.com/ryan-a-baker/k8s-scaling-demo/blob/master/charts/prometheus-adapter/config.yaml#L18-L23) we deployed earlier located within the Helm Charts values file for the prometheus adapter:
+Out of the box, the Prometheus Adapter comes with a ton of pre-canned "rules" for exposing metrics from Prometheus to the K8S API. However, for simplicity, this demo disables all of the out of box configurations and only configures a rule to gather the number of messages in a given RabbitMQ queue.  Let's take a look at that [configuration](https://github.com/ryan-a-baker/k8s-scaling-demo/blob/master/charts/prometheus-adapter/config.yaml#L18-L23) we deployed earlier located within the Helm Charts values file for the prometheus adapter:
 
-```
-- seriesQuery: 'rabbitmq_queue_messages{kubernetes_name!="",kubernetes_namespace!=""}'
+```- seriesQuery: 'rabbitmq_queue_messages{kubernetes_name!="",kubernetes_namespace!=""}'
   resources:
     overrides:
       kubernetes_namespace: {resource: "namespace"}
@@ -150,7 +151,7 @@ Out of the box, the Prometheus Adapter comes with a ton of precanned configurati
   metricsQuery: sum(<<.Series>>{<<.LabelMatchers>>,queue="task_queue"}) by (<<.GroupBy>>)
 ```
 
-This was built by walking through the [configuration demo](https://needsurl).  I highly suggest walking through it to get a better understanding of the configuration, but I'll walk through it briefly.
+This was built by walking through the [configuration demo](https://needsurl).  I highly suggest walking through it to get a better understanding of the configuration, but I'll walk through it briefly but I certainly won't do it justice.
 
 The first part of the query is the "seriesQuery", which basically instructs the adapter which series of the data we are interested in.  We also limit the namespace and name of the service here.  Take a look at the query we executed against Prometheus earlier:
 
@@ -160,13 +161,17 @@ rabbitmq_queue_messages{kubernetes_name="rabbitmq-server-scaling-demo",kubernete
 
 Our configuration tells the Prometheus adapter to gather all series for data for the metric named "rabbitmq_queue_messages" metric where the labels on the metric for kubernetes_namespace and kubernetes_name (of the service) are not empty.
 
-Because kubernetes_namespace and kubernetes_name don't align with the actual name of the kubernetes resources (which would be just namespace and name), the "overrides" maps the Kubernetes resource to the label we want to query prometheus.
+Because kubernetes_namespace and kubernetes_name don't align with the actual name of the kubernetes resources (which would be just namespace and name), the "overrides" maps the Kubernetes resource to the label we want to query Prometheus.  To get a complete list of Kubernetes resources to help you map the labels on the metrics to Kubernetes resources, you can run the following:
+
+```
+kubectl api-resources
+```
 
 The final part of the configuration is the query, which tells the adapter the query to run on Prometheus to gather the data.  The adapter will replace the "series" variable with rabbitmq_queue_messages and the "LabelMatchers" variable with the label selector and values for kubernetes_namespace and kuberentes_name.  The values for the selectors will be filled in later when we do the HPA, so just hang tight on that.
 
-You may be asking yourself, can't we just variablize the queue too?  I would say yes, and the [documentation] would indicate as such, but I haven't had any luck getting that to work so I'm just manually entering it in the configuration.  This isn't optimal because you'd have have to have a line in the configuration for each queue that you are want to scale off.  Maybe soon I'll get back to variablizing that part too...
+You may be asking yourself, can't we just variablize the queue too?  I would say yes, and the [documentation] would indicate as such, but I haven't had any luck getting that to work so I'm just manually entering it in the configuration.  This isn't optimal because you'd have have to have a rule in the configuration for each queue that you are want monitor for scaling.  Maybe soon I'll get back to variablizing that part too...
 
-The configuration has been applied, but let's take a look at some of components in Kubernetes that makes this all work.
+The configuration has been applied by our Helm chart, but let's take a look at some of components in Kubernetes that makes this all work.  This will also prove very useful if you need to troubleshoot any of the components.
 
 First off, let's look at the new API service that the Prometheus adapter created:
 
@@ -210,9 +215,6 @@ We can use this information to query our new custom metrics API to make sure eve
 ```
 ➜  ~ kubectl get --raw /apis/custom.metrics.k8s.io/v1beta1/namespaces/rabbitmq-scaling-demo/services/rabbitmq-server-scaling-demo/rabbitmq_queue_messages?metricLabelSelector=queue%3Dtasks_queue
 ```
-
-Which will result in the following information:
-
 ```{
   "kind": "MetricValueList",
   "apiVersion": "custom.metrics.k8s.io/v1beta1",
@@ -243,7 +245,8 @@ The final piece of the puzzle is the HPA that is defined.  This will give Kubern
 
 Let's take a look at our [configuration for the hpa](https://github.com/ryan-a-baker/k8s-scaling-demo/blob/master/charts/rabbitmq-sample-app/templates/hpa.yaml):
 
-```apiVersion: autoscaling/v2beta2
+```
+apiVersion: autoscaling/v2beta2
 kind: HorizontalPodAutoscaler
 metadata:
   name: rabbitmq-server-scaling-demo-hpa
@@ -270,7 +273,7 @@ spec:
 
 The scale target section should be familiar, as it's the same as HPA's based on CPU or RAM metrics.  It tells the HPA the exact path to the target that should be scaled.  In our case, it's the worker deployment, which consumes messages from RabbitMQ.
 
-The metrics section introduces the "Object" type, which will be leverage for custom metrics.  I honestly struggled with getting this working until I realized that the information that it wanted was a direct reference to the "describedObject" from the Prometheus Adapter.
+The metrics section introduces the "Object" type, which will be leveraged for custom metrics.  I honestly struggled with getting this working until I realized that the information that it wanted was a direct reference to the "describedObject" from the Prometheus Adapter.
 
 Finally, our target is set to 100, which means that the HPA should scale the deployment to ensure there is 1 pod for every 100 messages in the queue.  Let's try this out!
 
@@ -300,3 +303,9 @@ rabbitmq-server-scaling-demo-hpa   Deployment/worker   4987/100   1         50  
 ```
 
 Boom!  50 pods have been launched to handled the load!
+
+# Wrap up
+
+I hope this helps everyone!  Feel free to run the `destroy.sh` script to cleanup up all the resources we created.  
+
+If you any any issues at all, feel free to comment here or reach out to me via one of my linked social media accounts!
