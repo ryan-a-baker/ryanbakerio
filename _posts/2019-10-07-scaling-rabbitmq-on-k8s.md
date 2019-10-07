@@ -1,7 +1,6 @@
 ---
 layout: post
 title: Scaling Pods based on RabbitMQ Queue Depth
-hidden: true
 ---
 
 # Introduction
@@ -155,7 +154,7 @@ Out of the box, the Prometheus Adapter comes with a ton of pre-canned "rules" fo
   metricsQuery: sum(<<.Series>>{<<.LabelMatchers>>,queue="task_queue"}) by (<<.GroupBy>>)
 ```
 
-This was built by walking through the [configuration demo](https://needsurl).  I highly suggest walking through it to get a better understanding of the configuration, but I'll walk through it briefly but I certainly won't do it justice.
+This was built by walking through the [configuration demo](https://github.com/DirectXMan12/k8s-prometheus-adapter/blob/master/docs/config-walkthrough.md).  I highly suggest walking through it to get a better understanding of the configuration.  I'll walk through it briefly but I certainly won't do it justice.
 
 The first part of the query is the "seriesQuery", which basically instructs the adapter which series of the data we are interested in.  We also limit the namespace and name of the service here.  Take a look at the query we executed against Prometheus earlier:
 
@@ -173,7 +172,7 @@ kubectl api-resources
 
 The final part of the configuration is the query, which tells the adapter the query to run on Prometheus to gather the data.  The adapter will replace the "series" variable with rabbitmq_queue_messages and the "LabelMatchers" variable with the label selector and values for kubernetes_namespace and kuberentes_name.  The values for the selectors will be filled in later when we do the HPA, so just hang tight on that.
 
-You may be asking yourself, can't we just variablize the queue too?  I would say yes, and the [documentation] would indicate as such, but I haven't had any luck getting that to work so I'm just manually entering it in the configuration.  This isn't optimal because you'd have have to have a rule in the configuration for each queue that you are want monitor for scaling.  Maybe soon I'll get back to variablizing that part too...
+You may be asking yourself, can't we just variablize the queue too?  I would say yes, and the documentation would indicate as much, but I haven't had any luck getting that to work so I'm just manually entering it in the configuration.  This isn't optimal because you'd have have to have a rule in the configuration for each queue that you are want monitor for scaling.  Maybe soon I'll get back to variablizing that part too...
 
 The configuration has been applied by our Helm chart, but let's take a look at some of components in Kubernetes that makes this all work.  This will also prove very useful if you need to troubleshoot any of the components.
 
@@ -220,6 +219,9 @@ We can use this information to query our new custom metrics API to make sure eve
 ```
 ➜  ~ kubectl get --raw /apis/custom.metrics.k8s.io/v1beta1/namespaces/rabbitmq-scaling-demo/services/rabbitmq-server-scaling-demo/rabbitmq_queue_messages?metricLabelSelector=queue%3Dtasks_queue
 ```
+
+Which results in the following:
+
 ```
 {
   "kind": "MetricValueList",
