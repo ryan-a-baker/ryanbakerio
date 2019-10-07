@@ -52,7 +52,8 @@ At the heart of this demo is the RabbitMQ service, which is a typical deployment
 
 With the helm chart for RabbitMQ, it's very easy to enable this as part of your [values file](https://github.com/ryan-a-baker/k8s-scaling-demo/blob/master/charts/rabbitmq/values.yaml#L18-L20)
 
-```metrics:
+```
+metrics:
   enabled: true
   port: 9090
 ```
@@ -124,7 +125,9 @@ But how did Prometheus know to collect that data?  That's where the magic comes 
 ```
 
 Which gives us the following (abbreviated):
-```apiVersion: v1
+
+```
+apiVersion: v1
 kind: Service
 metadata:
   annotations:
@@ -181,7 +184,8 @@ kubectl get --raw /apis/custom.metrics.k8s.io/v1beta1
 
 Which results in the following output:
 
-```{
+```
+{
   "kind": "APIResourceList",
   "apiVersion": "v1",
   "groupVersion": "custom.metrics.k8s.io/v1beta1",
@@ -215,7 +219,8 @@ We can use this information to query our new custom metrics API to make sure eve
 ```
 ➜  ~ kubectl get --raw /apis/custom.metrics.k8s.io/v1beta1/namespaces/rabbitmq-scaling-demo/services/rabbitmq-server-scaling-demo/rabbitmq_queue_messages?metricLabelSelector=queue%3Dtasks_queue
 ```
-```{
+```
+{
   "kind": "MetricValueList",
   "apiVersion": "custom.metrics.k8s.io/v1beta1",
   "metadata": {
@@ -282,7 +287,8 @@ First, let's look at the current state of the HPA.  Assuming you have been dilig
 ```
 ➜  ~ kubectl -n rabbitmq-scaling-demo get hpa
 ```
-```NAME                               REFERENCE           TARGETS   MINPODS   MAXPODS   REPLICAS   AGE
+```
+NAME                               REFERENCE           TARGETS   MINPODS   MAXPODS   REPLICAS   AGE
 rabbitmq-server-scaling-demo-hpa   Deployment/worker   0/100     1         50        1          2d9h
 ```
 
